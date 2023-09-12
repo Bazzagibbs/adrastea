@@ -1,0 +1,3 @@
+[submodule "playdate"]
+	path = playdate
+	url = git@github.com:Bazzagibbs/playdate.git
