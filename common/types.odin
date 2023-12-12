@@ -1,6 +1,6 @@
 package adrastea_common
 
 Mesh :: struct {
-    vert_buffer:    []f32,
-    index_buffer:   []i16,
+    vert_buffer:    [][3]f32,
+    index_buffer:   [][3]i16,
 }
