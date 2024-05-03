@@ -1,3 +1,3 @@
-[submodule "playdate"]
+[submodule "odin-playdate"]
 	path = playdate
-	url = git@github.com:Bazzagibbs/playdate.git
+	url = git@github.com:Bazzagibbs/odin-playdate.git
