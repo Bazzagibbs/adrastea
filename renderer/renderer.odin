@@ -220,18 +220,19 @@ destroy_render_target :: proc(target: ^Render_Target) {
 
 // Copies the render target to the framebuffer
 present_render_target :: proc(target: ^Render_Target) {
-    framebuffer := graphics.get_frame()
-    assert(len(target.buffer) == len(framebuffer) * 8)
-
-    pack_bits :: #force_inline proc "contextless" (bools: u64) -> u8 {
-        MAGIC :: 0x8040201008040201 
-        return u8((MAGIC * bools) >> 56)
-    }
-
-    in_idx := 0
-    for _, out_idx in framebuffer {
-        bools: u64 = (transmute(^u64) (&target.buffer[in_idx]))^
-        framebuffer[out_idx] = pack_bits(bools)
-        in_idx += 8
-    }
+    unimplemented()
+    // framebuffer := graphics.get_frame()
+    // assert(len(target.buffer) == len(framebuffer) * 8)
+    //
+    // pack_bits :: #force_inline proc "contextless" (bools: u64) -> u8 {
+    //     MAGIC :: 0x8040201008040201 
+    //     return u8((MAGIC * bools) >> 56)
+    // }
+    //
+    // in_idx := 0
+    // for _, out_idx in framebuffer {
+    //     bools: u64 = (transmute(^u64) (&target.buffer[in_idx]))^
+    //     framebuffer[out_idx] = pack_bits(bools)
+    //     in_idx += 8
+    // }
 }
