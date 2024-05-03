@@ -16,6 +16,7 @@ init :: proc "contextless" (api: ^playdate.Api) {
 
 
 set_update_callback :: proc "contextless" (callback: Update_Callback_Proc) {
+    update_callback = callback
     pd_sys.set_update_callback(_pd_callback_internal, &callback_context)
 }
 
