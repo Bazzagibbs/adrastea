@@ -1,77 +1,55 @@
-package adrastea_renderer
+package adrastea_graphics
 
 import "core:math"
-import "../playdate"
+import "core:math/linalg"
 import "../playdate/graphics"
 import "core:log"
 import "core:mem"
 
-bound_render_target: Render_Target
 
-clear :: proc(bg_color: graphics.Color) {
-    graphics.clear(bg_color)
-}
+// Allocates using temp allocator
+draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^$T/Mesh, material: ^$M/Material) {
+// draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material) {
 
-draw_mesh :: proc(mesh: ^Mesh) {
-    n_tris := len(mesh.index_buffer)
-    for indices in mesh.index_buffer {
-        point_0 := mesh.vert_buffer[indices[0]]
-        point_1 := mesh.vert_buffer[indices[1]]
-        point_2 := mesh.vert_buffer[indices[2]]
-        
-        // Transform from NDC to screen space // THIS SHOULD BE A SHADER STAGE
-        // NDC is [-1, 1], x-right y-down z-forward
-        ss_0 := _ndc_to_screen(point_0)
-        ss_1 := _ndc_to_screen(point_1)
-        ss_2 := _ndc_to_screen(point_2)
-        draw_triangle(ss_0, ss_1, ss_2)
+    // Vertex shader output buffer
+    context.allocator = context.temp_allocator
+    // v2f_buffer := make([]material.shader.vertex_output_type, len(mesh.vert_buffer))
+    // v2f_buffer := make([][3]f32, len())
+    // defer delete(v2f_buffer)
+
+    // Apply vertex shader
+    for vert_in, i in mesh.vert_buffer {
+        v2f := material.shader.vertex_program(vert_in, &render_pass.property_block, &material.property_block)
+        v2f_buffer[i] = v2f
     }
-}
 
-draw_mesh_bounds :: proc(mesh: ^Mesh) {
-    n_tris := len(mesh.index_buffer)
+    // Rasterize triangles
     for indices in mesh.index_buffer {
-        point_0 := mesh.vert_buffer[indices[0]]
-        point_1 := mesh.vert_buffer[indices[1]]
-        point_2 := mesh.vert_buffer[indices[2]]
-        
-        // Transform from NDC to screen space // THIS SHOULD BE A SHADER STAGE
-        // NDC is [-1, 1], x-right y-down z-forward
-        ss_0 := _ndc_to_screen(point_0)
-        ss_1 := _ndc_to_screen(point_1)
-        ss_2 := _ndc_to_screen(point_2)
-        draw_triangle_bounds(ss_0, ss_1, ss_2)
-    }
-}
+        vert_0 := mesh.vert_buffer[indices[0]]
+        vert_1 := mesh.vert_buffer[indices[1]]
+        vert_2 := mesh.vert_buffer[indices[2]]
 
-draw_mesh_wireframe :: proc(mesh: ^Mesh) {
-    n_tris := len(mesh.index_buffer)
-    for indices in mesh.index_buffer {
-        point_0 := mesh.vert_buffer[indices[0]]
-        point_1 := mesh.vert_buffer[indices[1]]
-        point_2 := mesh.vert_buffer[indices[2]]
-        
-        // Transform from NDC to screen space // THIS SHOULD BE A SHADER STAGE
-        // NDC is [-1, 1], x-right y-down z-forward
-        ss_0 := _ndc_to_screen(point_0)
-        ss_1 := _ndc_to_screen(point_1)
-        ss_2 := _ndc_to_screen(point_2)
-        draw_triangle_wireframe(ss_0, ss_1, ss_2)
+        rasterize_triangle(vert_0, vert_1, vert_2, &render_pass, &material)
     }
+
 }
 
 
 @(private)
-_ndc_to_screen :: proc(point: [3]f32) -> [2]i32 {
+_ndc_to_screen :: #force_inline proc(vertex: [3]f32) -> [2]i32 {
     HALF_SCREEN_X :: graphics.LCD_COLUMNS / 2
     HALF_SCREEN_Y :: graphics.LCD_ROWS / 2
 
-    x := i32(HALF_SCREEN_X * point.x) + HALF_SCREEN_X
-    y := i32(HALF_SCREEN_Y * point.y) + HALF_SCREEN_Y
+    x := i32(HALF_SCREEN_X * vertex.x) + HALF_SCREEN_X
+    y := i32(HALF_SCREEN_Y * vertex.y) + HALF_SCREEN_Y
     return {x, y}
 }
 
-draw_triangle :: proc(p0, p1, p2: [2]i32) {
+rasterize_triangle :: proc "fastcall" (a, b, c: $Vertex_Attributes, render_pass: ^Render_Pass, material: ^Material) {
+
+}
+
+draw_triangle :: proc(p0, p1, p2: [2]i32, material: ^Material) {
     swap :: #force_inline proc "contextless" (a, b: [2]i32) -> ([2]i32, [2]i32) {
         return b, a
     }
@@ -108,6 +86,7 @@ draw_triangle :: proc(p0, p1, p2: [2]i32) {
     }
 }
 
+
 draw_triangle_bounds :: proc(p0, p1, p2: [2]i32) {
     min, max: [2]i32
     min.x = math.min(p0.x, p1.x, p2.x)
@@ -117,11 +96,13 @@ draw_triangle_bounds :: proc(p0, p1, p2: [2]i32) {
 
 }
 
+
 draw_triangle_wireframe :: proc(p0, p1, p2: [2]i32) {
         draw_line(p0, p1)
         draw_line(p1, p2)
         draw_line(p2, p0)
 }
+
 
 draw_line :: proc(p0, p1: [2]i32) {
     swap :: #force_inline proc "contextless" (a, b: i32) -> (i32, i32) {
@@ -171,13 +152,9 @@ draw_span :: #force_inline proc "contextless" (x_begin, x_end, y: i32) {
 }
 
 
-// foo := 0
 add_fragment :: #force_inline proc "contextless" (x, y: i32) {
-    // context = playdate.default_context()
-    // set_pixel(bound_buffer, x, y, true)
-    set_fragment(&bound_render_target, x, y, 1)
+    // set_fragment(&bound_render_target, x, y, 1)
 
-    // foo += 1
 }
 
 
@@ -199,7 +176,8 @@ set_fragment :: #force_inline proc "contextless" (render_target: ^Render_Target,
     render_target.buffer[idx] = value
 }
 
-create_render_target :: proc(width, height: u32) -> Render_Target {
+
+render_target_create :: proc(width, height: u32) -> Render_Target {
     rt := Render_Target {
         width = width,
         height = height,
@@ -210,16 +188,19 @@ create_render_target :: proc(width, height: u32) -> Render_Target {
     return rt
 }
 
-clear_render_target :: proc(target: ^Render_Target, value: u8) {
+
+render_target_destroy :: proc(render_target: ^Render_Target) {
+    delete(render_target.buffer)
+}
+
+
+render_target_clear :: proc(target: ^Render_Target, value: u8) {
     mem.set(raw_data(target.buffer), value, len(target.buffer))
 }
 
-destroy_render_target :: proc(target: ^Render_Target) {
-    delete(target.buffer)
-}
 
-// Copies the render target to the framebuffer
-present_render_target :: proc(target: ^Render_Target) {
+// Copies the render target (8 bit) to the framebuffer (1 bit)
+render_target_present :: proc(target: ^Render_Target) {
     // unimplemented()
     framebuffer := graphics.get_frame()[:52*graphics.LCD_ROWS]
     assert(len(target.buffer) == len(framebuffer) * 8)
@@ -235,4 +216,9 @@ present_render_target :: proc(target: ^Render_Target) {
         framebuffer[out_idx] = pack_bits(bools)
         in_idx += 8
     }
+}
+
+
+render_pass_create :: proc() -> Render_Pass {
+
 }
