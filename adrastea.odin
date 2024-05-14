@@ -3,7 +3,7 @@ package adrastea
 import "core:runtime"
 
 import "playdate"
-import pd_sys "playdate/system"
+import pd_b "playdate/bindings"
 
 callback_context: runtime.Context
 
@@ -17,14 +17,14 @@ init :: proc "contextless" (api: ^playdate.Api) {
 
 set_update_callback :: proc "contextless" (callback: Update_Callback_Proc) {
     update_callback = callback
-    pd_sys.set_update_callback(_pd_callback_internal, &callback_context)
+    pd_b.system.set_update_callback(_pd_callback_internal, &callback_context)
 }
 
 
 @(private)
-_pd_callback_internal :: proc "c" (user_data: rawptr) -> i32 {
-    if update_callback == nil do return 0
+_pd_callback_internal :: proc "c" (user_data: rawptr) -> pd_b.Sys_Result {
+    if update_callback == nil do return .ok
 
     context = (^runtime.Context)(user_data)^
-    return update_callback() ? 1 : 0
+    return update_callback() ? .ok : .error
 }
