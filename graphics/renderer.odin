@@ -1,3 +1,14 @@
+// TODO: 
+// - Create V2F buffer
+// - Populate V2F buffer from vertex shader
+// - In rasterize_triangle: 
+//      - Stencil test
+//      - Depth test
+//      - Barycentric interpolation on V2F tris
+//      - Pass interpolated V2F into fragment shader
+//      - Check "discard" on fragment output
+//      - Write to render target
+
 package adrastea_graphics
 
 import "core:math"
@@ -8,28 +19,26 @@ import "core:mem"
 
 
 // Allocates using temp allocator
-draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^$T/Mesh, material: ^$M/Material) {
-// draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material) {
+draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material($Mat_Props, $V2F)) {
 
     // Vertex shader output buffer
     context.allocator = context.temp_allocator
-    // v2f_buffer := make([]material.shader.vertex_output_type, len(mesh.vert_buffer))
-    // v2f_buffer := make([][3]f32, len())
-    // defer delete(v2f_buffer)
+    v2f_buffer := make([]V2F, len(mesh.vertices))
+    defer delete(v2f_buffer)
 
     // Apply vertex shader
-    for vert_in, i in mesh.vert_buffer {
-        v2f := material.shader.vertex_program(vert_in, &render_pass.property_block, &material.property_block)
+    for vert_in, i in mesh.vertices {
+        v2f := material.shader.vertex_program(vert_in, &render_pass.properties, &material.properties)
         v2f_buffer[i] = v2f
     }
 
     // Rasterize triangles
     for indices in mesh.index_buffer {
-        vert_0 := mesh.vert_buffer[indices[0]]
-        vert_1 := mesh.vert_buffer[indices[1]]
-        vert_2 := mesh.vert_buffer[indices[2]]
+        vert_0 := mesh.vertices[indices[0]]
+        vert_1 := mesh.vertices[indices[1]]
+        vert_2 := mesh.vertices[indices[2]]
 
-        rasterize_triangle(vert_0, vert_1, vert_2, &render_pass, &material)
+        rasterize_triangle(vert_0, vert_1, vert_2, render_pass, material)
     }
 
 }
@@ -46,7 +55,6 @@ _ndc_to_screen :: #force_inline proc(vertex: [3]f32) -> [2]i32 {
 }
 
 rasterize_triangle :: proc "fastcall" (a, b, c: $Vertex_Attributes, render_pass: ^Render_Pass, material: ^Material) {
-
 }
 
 draw_triangle :: proc(p0, p1, p2: [2]i32, material: ^Material) {
@@ -151,60 +159,59 @@ draw_span :: #force_inline proc "contextless" (x_begin, x_end, y: i32) {
     }
 }
 
-
-add_fragment :: #force_inline proc "contextless" (x, y: i32) {
-    // set_fragment(&bound_render_target, x, y, 1)
-
-}
+add_fragment :: #force_inline proc "contextless" (x, y: i32) {}
 
 
-// Sets bit directly in framebuffer. Probably only want to pack bits at the end
-set_pixel :: #force_inline proc "contextless" (image_buffer: []u8, x, y: i32, value: bool) {
-    pixel_byte_idx := (x / 8) % graphics.LCD_ROWSIZE + y * graphics.LCD_ROWSIZE 
-    pixel_bit_offset := u8(7 - x % 8)
+set_fragment :: #force_inline proc "contextless" (render_target: ^Render_Target, x, y: i32, value: Fragment) {
+    if (value.discard) do return
 
-    if value == true {
-        image_buffer[pixel_byte_idx] |= 1 << pixel_bit_offset
-    } else {
-        image_buffer[pixel_byte_idx] &~= 1 << pixel_bit_offset
-    }
-}
-
-
-set_fragment :: #force_inline proc "contextless" (render_target: ^Render_Target, x, y: i32, value: u8) {
     idx := (u32(x) % render_target.width) + (u32(y) * render_target.width)
-    render_target.buffer[idx] = value
+    render_target.buffer_color[idx] = value.color
 }
 
 
-render_target_create :: proc(width, height: u32) -> Render_Target {
+render_target_create :: proc(width, height: u32, support_depth: b32) -> Render_Target {
     rt := Render_Target {
-        width = width,
-        height = height,
+        support_depth = support_depth,
+        width         = width,
+        height        = height,
     }
 
-    rt.buffer = make([]u8, width * height)
+    rt.buffer_color = make([]b8, width * height)
+
+    if (support_depth) {
+        rt.buffer_depth = make([]f32, width * height)
+    }
 
     return rt
 }
 
 
 render_target_destroy :: proc(render_target: ^Render_Target) {
-    delete(render_target.buffer)
+    delete(render_target.buffer_color)
+
+    if (render_target.support_depth) {
+        delete(render_target.buffer_depth)
+    }
 }
 
 
-render_target_clear :: proc(target: ^Render_Target, value: u8) {
-    mem.set(raw_data(target.buffer), value, len(target.buffer))
+render_target_clear :: proc(target: ^Render_Target, value: b8) {
+    mem.set(raw_data(target.buffer_color), transmute(u8)(value), len(target.buffer_color))
+
+    if (target.support_depth) {
+        mem.set(raw_data(target.buffer_depth), 0, len(target.buffer_depth))
+    }
 }
 
 
 // Copies the render target (8 bit) to the framebuffer (1 bit)
 render_target_present :: proc(target: ^Render_Target) {
-    // unimplemented()
-    framebuffer := graphics.get_frame()[:52*graphics.LCD_ROWS]
-    assert(len(target.buffer) == len(framebuffer) * 8)
+    framebuffer := graphics.get_frame()[:graphics.LCD_ROWS * graphics.LCD_ROWSIZE]
+    assert(len(target.buffer_color) == len(framebuffer) * 8)
 
+    // Can I do this in 32 bit, then OR them together?
+    // Not worth thinking about until I can profile on hardware
     pack_bits :: #force_inline proc "contextless" (bools: u64) -> u8 {
         MAGIC :: 0x8040201008040201 
         return u8((MAGIC * bools) >> 56)
@@ -212,13 +219,24 @@ render_target_present :: proc(target: ^Render_Target) {
 
     in_idx := 0
     for _, out_idx in framebuffer {
-        bools: u64 = (transmute(^u64) (&target.buffer[in_idx]))^
+        bools: u64 = (transmute(^u64) (&target.buffer_color[in_idx]))^
         framebuffer[out_idx] = pack_bits(bools)
         in_idx += 8
     }
 }
 
 
-render_pass_create :: proc() -> Render_Pass {
-
+render_pass_create :: proc(target: ^Render_Target) -> Render_Pass {
+    return Render_Pass {
+        render_target = target,
+        // properties = default,
+    }
 }
+
+
+render_pass_destroy :: proc(render_pass: ^Render_Pass) {
+    // Nothing to clean up yet.
+}
+
+
+
