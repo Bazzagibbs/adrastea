@@ -207,7 +207,7 @@ render_target_clear :: proc(target: ^Render_Target, value: b8) {
 
 // Copies the render target (8 bit) to the framebuffer (1 bit)
 render_target_present :: proc(target: ^Render_Target) {
-    framebuffer := graphics.get_frame()[:graphics.LCD_ROWS * graphics.LCD_ROWSIZE]
+    framebuffer := graphics.get_frame()
     assert(len(target.buffer_color) == len(framebuffer) * 8)
 
     // Can I do this in 32 bit, then OR them together?
