@@ -170,20 +170,24 @@ set_fragment :: #force_inline proc "contextless" (render_target: ^Render_Target,
 }
 
 
-render_target_create :: proc(width, height: u32, support_depth: b32) -> Render_Target {
+render_target_create :: proc(width, height: u32, support_depth: bool) -> Render_Target {
     rt := Render_Target {
         support_depth = support_depth,
         width         = width,
         height        = height,
     }
 
-    rt.buffer_color = make([]b8, width * height)
+    rt.buffer_color = make([]Color, width * height)
 
     if (support_depth) {
         rt.buffer_depth = make([]f32, width * height)
     }
 
     return rt
+}
+
+render_target_presentable_create :: proc(support_depth: bool) -> Render_Target {
+    return render_target_create(graphics.LCD_ROWSIZE * 8, graphics.LCD_ROWS, support_depth)
 }
 
 

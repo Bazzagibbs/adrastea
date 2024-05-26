@@ -1,5 +1,12 @@
 package adrastea_graphics
 
+import pd_gfx "../playdate/graphics"
+
+Color :: enum u8 {
+    white = 0,
+    black = 1,
+}
+
 Mesh :: struct {
     vertices        : #soa[]Vertex_Attributes,
     index_buffer    : [][3]i16,
@@ -12,20 +19,19 @@ Vertex_Attributes :: struct {
 }
 
 
-
 Fragment :: struct {
     depth   : f32,
-    discard : b8,
-    color   : b8,
-    // stencil : b8,
+    discard : bool,
+    color   : Color,
+    // stencil : bool,
 }
 
 
 Render_Target :: struct {
-    support_depth       : b32,
+    support_depth       : bool,
     width               : u32,
     height              : u32,
-    buffer_color        : []b8,
+    buffer_color        : []Color,
     buffer_depth        : []f32,
 }
 
