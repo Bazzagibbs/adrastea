@@ -7,15 +7,15 @@ shader_create :: proc (
     vertex:   proc "contextless" (vert_in: Vertex_Attributes, 
                                   pass_properties: ^Render_Pass_Property_Block, 
                                   material_properties: ^$Mat_Props
-                                 ) -> (vert_to_frag: $V2F),
-    fragment: proc "contextless" (vert_to_frag: V2F, 
+                                 ) -> Vertex_To_Fragment,
+    fragment: proc "contextless" (vert_to_frag: Vertex_To_Fragment,
                                   pass_properties: ^Render_Pass_Property_Block, 
                                   material_properties: ^Mat_Props
                                  ) -> Fragment
-    ) -> Shader(Mat_Props, V2F) {
+    ) -> Shader(Mat_Props) {
 
 
-    return Shader(Mat_Props, V2F) {
+    return Shader(Mat_Props) {
         vertex_program   = vertex,
         fragment_program = fragment,
     }
@@ -27,8 +27,8 @@ shader_destroy :: proc(shader: ^Shader) {
 }
 
 
-material_create :: proc (shader: ^Shader($Mat_Props, $V2F), properties: Mat_Props) -> Material(Mat_Props, V2F) {
-    return Material(Mat_Props, V2F) {
+material_create :: proc (shader: ^Shader($Mat_Props), properties: Mat_Props) -> Material(Mat_Props) {
+    return Material(Mat_Props) {
         shader     = shader,
         properties = properties,
     }
@@ -37,4 +37,8 @@ material_create :: proc (shader: ^Shader($Mat_Props, $V2F), properties: Mat_Prop
 
 material_destroy :: proc(material: ^Material) {
     // Nothing to clean up yet.
+}
+
+material_properties :: proc "contextless" (material: ^Material($Mat_Props)) -> ^Mat_Props {
+    return &material.properties
 }

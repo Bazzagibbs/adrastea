@@ -14,10 +14,14 @@ Mesh :: struct {
 
 Vertex_Attributes :: struct {
     position   : [3]f32,
-    normal     : [3]f32,
     tex_coord  : [2]f32,
 }
 
+Vertex_To_Fragment :: struct {
+    position    : [3]f32,
+    tex_coord   : [2]f32,
+    user_scalar : u8,
+}
 
 Fragment :: struct {
     depth   : f32,
@@ -50,9 +54,9 @@ Render_Pass :: struct {
 }
 
 
-Shader :: struct (Mat_Props, V2F: typeid) {
-    vertex_program      : proc "contextless" (vertex_input: Vertex_Attributes, render_pass_properties: ^Render_Pass_Property_Block, material_properties: ^Mat_Props) -> V2F,
-    fragment_program    : proc "contextless" (vert_to_frag: V2F, render_pass_properties: ^Render_Pass_Property_Block, material_properties: ^Mat_Props) -> Fragment,
+Shader :: struct ($Mat_Props: typeid) {
+    vertex_program      : proc "contextless" (vertex_input: Vertex_Attributes, render_pass_properties: ^Render_Pass_Property_Block, material_properties: ^Mat_Props) -> Vertex_To_Fragment,
+    fragment_program    : proc "contextless" (vert_to_frag: Vertex_To_Fragment, render_pass_properties: ^Render_Pass_Property_Block, material_properties: ^Mat_Props) -> Fragment,
 }
 
 
@@ -69,8 +73,8 @@ Shader_Depth_Test_Flag  :: enum {
     Greater,
 }
 
-Material :: struct ($Mat_Props, $V2F: typeid) {
-    shader         : ^Shader(Mat_Props, V2F),
+Material :: struct ($Mat_Props: typeid) {
+    shader         : ^Shader(Mat_Props),
     properties     : Mat_Props,
     cull_backface  : Shader_Cull_Backface_Flags,
     depth_test     : Shader_Depth_Test_Flags,

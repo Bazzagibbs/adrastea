@@ -19,11 +19,11 @@ import "core:mem"
 
 
 // Allocates using temp allocator
-draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material($Mat_Props, $V2F)) {
+draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material($Mat_Props)) {
 
     // Vertex shader output buffer
     context.allocator = context.temp_allocator
-    v2f_buffer := make([]V2F, len(mesh.vertices))
+    v2f_buffer := make([]Vertex_To_Fragment, len(mesh.vertices))
     defer delete(v2f_buffer)
 
     // Apply vertex shader
@@ -34,11 +34,11 @@ draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material($M
 
     // Rasterize triangles
     for indices in mesh.index_buffer {
-        vert_0 := mesh.vertices[indices[0]]
-        vert_1 := mesh.vertices[indices[1]]
-        vert_2 := mesh.vertices[indices[2]]
+        a_v2f := v2f_buffer[indices[0]]
+        b_v2f := v2f_buffer[indices[1]]
+        c_v2f := v2f_buffer[indices[2]]
 
-        rasterize_triangle(vert_0, vert_1, vert_2, render_pass, material)
+        rasterize_triangle(a_v2f, b_v2f, c_v2f, render_pass, material)
     }
 
 }
@@ -54,7 +54,8 @@ _ndc_to_screen :: #force_inline proc(vertex: [3]f32) -> [2]i32 {
     return {x, y}
 }
 
-rasterize_triangle :: proc "fastcall" (a, b, c: $Vertex_Attributes, render_pass: ^Render_Pass, material: ^Material) {
+rasterize_triangle :: proc "fastcall" (a, b, c: Vertex_To_Fragment, render_pass: ^Render_Pass, material: ^Material) {
+    // Barycentric interpolation 
 }
 
 draw_triangle :: proc(p0, p1, p2: [2]i32, material: ^Material) {
