@@ -1,6 +1,6 @@
 package adrastea
 
-import "core:runtime"
+import "base:runtime"
 
 import "playdate"
 import pd_b "playdate/bindings"

@@ -56,6 +56,7 @@ _ndc_to_screen :: #force_inline proc(vertex: [3]f32) -> [2]i32 {
 
 rasterize_triangle :: proc "fastcall" (a, b, c: Vertex_To_Fragment, render_pass: ^Render_Pass, material: ^Material) {
     // Barycentric interpolation 
+    material.shader.fragment_program()
 }
 
 draw_triangle :: proc(p0, p1, p2: [2]i32, material: ^Material) {

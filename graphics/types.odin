@@ -13,8 +13,9 @@ Mesh :: struct {
 }
 
 Vertex_Attributes :: struct {
-    position   : [3]f32,
-    tex_coord  : [2]f32,
+    position    : [3]f32,
+    tex_coord   : [2]f32,
+    user_scalar : u8,
 }
 
 Vertex_To_Fragment :: struct {
@@ -27,7 +28,6 @@ Fragment :: struct {
     depth   : f32,
     discard : bool,
     color   : Color,
-    // stencil : bool,
 }
 
 
