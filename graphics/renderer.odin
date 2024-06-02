@@ -154,7 +154,7 @@ rasterize_triangle :: proc (a, b, c: Vertex_To_Fragment, render_pass: ^Render_Pa
 
         per_fragment_lower:
         for x in start_x ..= end_x {
-            if x < 0 || x >= i_rt_height do continue
+            if x < 0 || x >= i_rt_width do continue
           
             bary := _barycentric({x, y}, screens[0], screens[1], screens[2])
             interp_pos := v2fs[0].position * bary[0] + v2fs[1].position * bary[1] + v2fs[2].position * bary[2]
@@ -189,7 +189,7 @@ rasterize_triangle :: proc (a, b, c: Vertex_To_Fragment, render_pass: ^Render_Pa
 
         per_fragment_upper:
         for x in start_x ..= end_x {
-            if x < 0 || x >= i_rt_height do continue
+            if x < 0 || x >= i_rt_width do continue
           
             bary := _barycentric({x, y}, screens[0], screens[1], screens[2])
             interp_pos := v2fs[0].position * bary[0] + v2fs[1].position * bary[1] + v2fs[2].position * bary[2]
