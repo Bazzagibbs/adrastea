@@ -20,6 +20,7 @@ import "core:mem"
 
 // Allocates using temp allocator
 draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material($Mat_Props)) {
+    if material.depth_test == .Never do return
 
     // Vertex shader output buffer
     context.allocator = context.temp_allocator
@@ -45,130 +46,174 @@ draw_mesh :: proc(render_pass: ^Render_Pass, mesh: ^Mesh, material: ^Material($M
 
 
 @(private)
-_ndc_to_screen :: #force_inline proc(vertex: [3]f32) -> [2]i32 {
-    HALF_SCREEN_X :: graphics.LCD_COLUMNS / 2
-    HALF_SCREEN_Y :: graphics.LCD_ROWS / 2
-
-    x := i32(HALF_SCREEN_X * vertex.x) + HALF_SCREEN_X
-    y := i32(HALF_SCREEN_Y * vertex.y) + HALF_SCREEN_Y
-    return {x, y}
+_ndc_to_screen :: #force_inline proc "contextless" (ndc: [3]f32, width, height: f32) -> [2]i32 {
+    return {
+        i32((ndc.x + 1) * 0.5 * width),
+        i32((ndc.y + 1) * 0.5 * height)
+    }
 }
 
-rasterize_triangle :: proc "fastcall" (a, b, c: Vertex_To_Fragment, render_pass: ^Render_Pass, material: ^Material) {
-    // Barycentric interpolation 
-    material.shader.fragment_program()
+@(private)
+_barycentric :: #force_inline proc "contextless" (screen_point, a, b, c: [2]i32) -> [3]f32 {
+    u := linalg.cross([3]f32{f32(c.x - a.x), f32(b.x - a.x), f32(a.x - screen_point.x)}, 
+                           [3]f32{f32(c.y - a.y), f32(b.y - a.y), f32(a.y - screen_point.y)})
+    
+    if math.abs(u.z) < 1 do return {-1, 1, 1} // degenerate triangle
+    return [3]f32 { 1 - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z }
 }
 
-draw_triangle :: proc(p0, p1, p2: [2]i32, material: ^Material) {
-    swap :: #force_inline proc "contextless" (a, b: [2]i32) -> ([2]i32, [2]i32) {
+
+@(private)
+_idx_from_2d :: #force_inline proc "contextless" (x, y: i32, width: u32) -> i32 {
+    return (i32)(width) * y + x
+}
+
+@(private)
+_test_depth :: #force_inline proc "contextless" (depth_test_flag: Shader_Depth_Test_Flag, target: ^Render_Target, x, y: i32, frag_depth: f32) -> bool {
+    depth := target.buffer_depth[_idx_from_2d(x, y, target.width)]
+
+    switch depth_test_flag {
+        case .GEqual   : return frag_depth >= depth
+        case .LEqual   : return frag_depth <= depth
+        case .Greater  : return frag_depth >  depth
+        case .Less     : return frag_depth <  depth
+        case .Equal    : return frag_depth == depth
+        case .NotEqual : return frag_depth != depth
+        case .Always   : return true
+        case .Never    : return false
+    }
+
+    return false
+}
+
+
+rasterize_triangle :: proc (a, b, c: Vertex_To_Fragment, render_pass: ^Render_Pass, material: ^Material($Mat_Props)) {
+    swap :: #force_inline proc "contextless" (a, b: $T) -> (b_out, a_out: T) {
         return b, a
     }
-    p0 := p0
-    p1 := p1
-    p2 := p2
+    
 
+    // Calculate triangle normal
+    face_normal := linalg.cross(b.position.xyz - a.position.xyz, c.position.xyz - a.position.xyz)
+
+    rt_width          := (f32)(render_pass.render_target.width)
+    rt_height         := (f32)(render_pass.render_target.height)
+    rt_width_inverse  := 1 / rt_width
+    rt_height_inverse := 1 / rt_height
+    i_rt_width        := (i32)(render_pass.render_target.width)
+    i_rt_height       := (i32)(render_pass.render_target.height)
+    
+
+    // Perspective division
+    ndcs := [3][3]f32 {
+        a.position.xyz / a.position.w,
+        b.position.xyz / b.position.w,
+        c.position.xyz / c.position.w,
+    }
+
+    v2fs := [3]Vertex_To_Fragment {a, b, c}
+
+    screens := [3][2]i32 {
+        _ndc_to_screen(ndcs[0], rt_width, rt_height),
+        _ndc_to_screen(ndcs[1], rt_width, rt_height),
+        _ndc_to_screen(ndcs[2], rt_width, rt_height),
+    }
+
+    // Generate fragments
+    
     // Sort low y to high y
-    if p0.y > p1.y do p0, p1 = swap(p0, p1)
-    if p0.y > p2.y do p0, p2 = swap(p0, p2)
-    if p1.y > p2.y do p1, p2 = swap(p1, p2)
-
-    total_height          := f32(p2.y - p0.y)
-    first_segment_height  := f32(p1.y - p0.y + 1)
-    second_segment_height := f32(p2.y - p1.y + 1)
-    
-    for y in p0.y..<p1.y {
-        // start at edge 0->2
-        // end at edge 0->1
-        height_progress :=  f32(y - p0.y) / total_height
-        segment_progress := f32(y - p0.y) / first_segment_height
-        start_x   := i32(math.lerp(f32(p0.x), f32(p2.x), height_progress))
-        end_x     := i32(math.lerp(f32(p0.x), f32(p1.x), segment_progress))
-        draw_span(start_x, end_x, y)
+    if ndcs[0].y > ndcs[1].y {
+        ndcs[0], ndcs[1]       = swap(ndcs[0], ndcs[1])
+        v2fs[0], v2fs[1]       = swap(v2fs[0], v2fs[1])
+        screens[0], screens[1] = swap(screens[0], screens[1])
     }
-    for y in p1.y..=p2.y {
-        // start at edge 0->2
-        // end at edge 1->2
-        height_progress :=  f32(y - p0.y) / total_height
-        segment_progress := f32(y - p1.y) / second_segment_height
-        start_x   := i32(math.lerp(f32(p0.x), f32(p2.x), height_progress))
-        end_x     := i32(math.lerp(f32(p1.x), f32(p2.x), segment_progress))
-        draw_span(start_x, end_x, y)
+    if ndcs[0].y > ndcs[2].y {
+        ndcs[0], ndcs[2] = swap(ndcs[0], ndcs[2])
+        v2fs[0], v2fs[2] = swap(v2fs[0], v2fs[2])
+        screens[0], screens[2] = swap(screens[0], screens[2])
     }
-}
-
-
-draw_triangle_bounds :: proc(p0, p1, p2: [2]i32) {
-    min, max: [2]i32
-    min.x = math.min(p0.x, p1.x, p2.x)
-    min.y = math.min(p0.y, p1.y, p2.y)
-    max.x = math.max(p0.x, p1.x, p2.x)
-    max.y = math.max(p0.y, p1.y, p2.y)
-
-}
-
-
-draw_triangle_wireframe :: proc(p0, p1, p2: [2]i32) {
-        draw_line(p0, p1)
-        draw_line(p1, p2)
-        draw_line(p2, p0)
-}
-
-
-draw_line :: proc(p0, p1: [2]i32) {
-    swap :: #force_inline proc "contextless" (a, b: i32) -> (i32, i32) {
-        return b, a
+    if ndcs[1].y > ndcs[2].y {
+        ndcs[1], ndcs[2] = swap(ndcs[1], ndcs[2])
+        v2fs[1], v2fs[2] = swap(v2fs[1], v2fs[2])
+        screens[1], screens[2] = swap(screens[1], screens[2])
     }
 
-    x0 := p0.x
-    y0 := p0.y
-    x1 := p1.x
-    y1 := p1.y
-    slope_swap := false
+    total_height          := f32(screens[2].y - screens[0].y)
+    first_segment_height  := f32(screens[1].y - screens[0].y + 1)
+    second_segment_height := f32(screens[2].y - screens[1].y + 1)
 
-    if math.abs(x0 - x1) < math.abs(y0 - y1) {
-        x0, y0 = swap(x0, y0)
-        x1, y1 = swap(x1, y1)
-        slope_swap = true
-    }
-    if x0 > x1 {
-        x0, x1 = swap(x0, x1)
-        y0, y1 = swap(y0, y1)
-    }
-    
-    dx := x1 - x0
-    dy := y1 - y0
 
-    d_error : i32 = math.abs(dy) * 2
-    error : i32 = 0
+    // should be TIGHT LOOP
+    // LOWER HALF
+    for y in screens[0].y ..< screens[1].y {
+        if y < 0 || y >= i_rt_height do continue
+        height_progress  := f32(y - screens[0].y) / total_height
+        segment_progress := f32(y - screens[0].y) / first_segment_height
+        start_x          := i32(math.lerp(f32(screens[0].x), f32(screens[2].x), height_progress))
+        end_x            := i32(math.lerp(f32(screens[0].x), f32(screens[1].x), segment_progress))
 
-    y_step : i32 = 1 if y1 > y0 else -1
-    y := y0
-    for x in x0..=x1 {
-        coord : [2]i32 = {y, x} if slope_swap else {x, y} // swap back if we slope swapped
-        add_fragment(coord.x, coord.y)
+        per_fragment_lower:
+        for x in start_x ..= end_x {
+            if x < 0 || x >= i_rt_height do continue
+          
+            bary := _barycentric({x, y}, screens[0], screens[1], screens[2])
+            interp_pos := v2fs[0].position * bary[0] + v2fs[1].position * bary[1] + v2fs[2].position * bary[2]
 
-        error += d_error
-        if error > dx {
-            y += y_step
-            error -= dx * 2
+            // Early depth test - too expensive to do late depth test
+            if render_pass.render_target.support_depth {
+                if !_test_depth(material.depth_test, render_pass.render_target, x, y, interp_pos.z) {
+                    continue per_fragment_lower
+                }
+            }
+            
+            // Interpolators
+            interp_v2f := Vertex_To_Fragment {
+                position    = interp_pos,
+                tex_coord   = v2fs[0].tex_coord * bary[0] + v2fs[1].tex_coord * bary[1] + v2fs[2].tex_coord * bary[2],
+                user_scalar = v2fs[0].user_scalar * bary[0] + v2fs[1].user_scalar * bary[1] + v2fs[2].user_scalar * bary[2],
+            }
+
+            frag_out := material.shader.fragment_program(interp_v2f, face_normal, &render_pass.properties, &material.properties)
+            render_target_set_fragment(render_pass.render_target, u32(x), u32(y), interp_pos.z, frag_out)
         }
     }
-}
 
-draw_span :: #force_inline proc "contextless" (x_begin, x_end, y: i32) {
-    for x in x_begin..=x_end {
-        add_fragment(x, y)
+    // UPPER HALF
+    for y in screens[1].y ..= screens[2].y {
+        if y < 0 || y >= i_rt_height do continue
+        
+        height_progress  := f32(y - screens[0].y) / total_height
+        segment_progress := f32(y - screens[1].y) / second_segment_height
+        start_x          := i32(math.lerp(f32(screens[0].x), f32(screens[2].x), height_progress))
+        end_x            := i32(math.lerp(f32(screens[1].x), f32(screens[2].x), segment_progress))
+
+        per_fragment_upper:
+        for x in start_x ..= end_x {
+            if x < 0 || x >= i_rt_height do continue
+          
+            bary := _barycentric({x, y}, screens[0], screens[1], screens[2])
+            interp_pos := v2fs[0].position * bary[0] + v2fs[1].position * bary[1] + v2fs[2].position * bary[2]
+
+            // Early depth test - too expensive to do late depth test
+            if render_pass.render_target.support_depth {
+                if !_test_depth(material.depth_test, render_pass.render_target, x, y, interp_pos.z) {
+                    continue per_fragment_upper
+                }
+            }
+            
+            // Interpolators
+            interp_v2f := Vertex_To_Fragment {
+                position    = interp_pos,
+                tex_coord   = v2fs[0].tex_coord * bary[0] + v2fs[1].tex_coord * bary[1] + v2fs[2].tex_coord * bary[2],
+                user_scalar = v2fs[0].user_scalar * bary[0] + v2fs[1].user_scalar * bary[1] + v2fs[2].user_scalar * bary[2],
+            }
+
+            frag_out := material.shader.fragment_program(interp_v2f, face_normal, &render_pass.properties, &material.properties)
+            render_target_set_fragment(render_pass.render_target, u32(x), u32(y), interp_pos.z, frag_out)
+        }
     }
-}
 
-add_fragment :: #force_inline proc "contextless" (x, y: i32) {}
-
-
-set_fragment :: #force_inline proc "contextless" (render_target: ^Render_Target, x, y: i32, value: Fragment) {
-    if (value.discard) do return
-
-    idx := (u32(x) % render_target.width) + (u32(y) * render_target.width)
-    render_target.buffer_color[idx] = value.color
+    
 }
 
 
@@ -201,8 +246,23 @@ render_target_destroy :: proc(render_target: ^Render_Target) {
     }
 }
 
+render_target_set_fragment :: #force_inline proc "contextless" (target: ^Render_Target, x, y: u32, depth: f32, fragment: Fragment) {
+    if fragment.discard || 
+        x < 0 || x >= target.width ||
+        y < 0 || y >= target.height {
+        return
+    }
 
-render_target_clear :: proc(target: ^Render_Target, value: b8) {
+    idx := _idx_from_2d(i32(x), i32(y), target.width)
+    target.buffer_color[idx] = fragment.color
+    if target.support_depth {
+        target.buffer_depth[idx] = depth
+    }
+    
+}
+
+
+render_target_clear :: proc(target: ^Render_Target, value: Color) {
     mem.set(raw_data(target.buffer_color), transmute(u8)(value), len(target.buffer_color))
 
     if (target.support_depth) {
